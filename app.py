@@ -1,32 +1,39 @@
+import json
+import os
+import time
+
+import pymongo
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify
-from utils import load_model
+from flask_socketio import SocketIO
+from flask_cors import CORS
 from marshmallow import Schema, fields, ValidationError
 
+from utils import load_model
+
 app = Flask(__name__)
+CORS(app)
+
+socketio = SocketIO(app, cors_allowed_origins="*")  # Allow CORS for development
+load_dotenv()
+
+try:
+    mongo = pymongo.MongoClient(os.getenv('MONGO_URI'))
+    db = mongo['chart']
+    collection = db['sensor']
+except Exception as e:
+    exit(f"Error: {str(e)}")
 
 
 class PredictSchema(Schema):
-    model = fields.Str(required=True)
-    N = fields.Float(required=True)
-    P = fields.Float(required=True)
-    K = fields.Float(required=True)
+    crop_type = fields.Int(required=True)
+    soil_moisture = fields.Float(required=True)
     temperature = fields.Float(required=True)
     humidity = fields.Float(required=True)
-    ph = fields.Float(required=True)
-    rainfall = fields.Float(required=True)
 
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    models = {
-        'decision_tree': 'Decision Tree',
-        'random_forest': 'Random Forest',
-        'logistic_regression': 'Logistic Regression',
-        'support_vector_machine': 'SVM',
-        'xgboost': 'XGBoost',
-        'naive_bayes': 'Naive Bayes',
-    }
-
     json_data = request.get_json()
 
     try:
@@ -34,16 +41,33 @@ def predict():
     except ValidationError as err:
         return jsonify({"errors": err.messages}), 422
 
-    if data['model'] in models:
-        loaded_model = load_model(models[data['model']])
-        prediction = loaded_model.predict([[data['N'], data['P'], data['K'], data['temperature'], data['humidity'], data['ph'], data['rainfall']]])[0]
-        return jsonify({
-            'model': models[data['model']],
-            'prediction': prediction
-        }), 200
-    else:
-        return jsonify({"error": "Invalid model name"}), 422
+    loaded_model = load_model("Decision Tree")
+    prediction = loaded_model.predict([[data['crop_type'], data['soil_moisture'], data['temperature'], data['humidity']]])[0]
+    return jsonify({
+        'prediction': bool(prediction)
+    }), 200
+
+
+def send_real_time_data():
+    while True:
+        data = collection.find({}).sort('_id', pymongo.DESCENDING).to_list()
+        for d in data:
+            d.pop('_id')
+        socketio.emit('data', {'data': json.dumps(data)})
+        time.sleep(5)
+
+
+@socketio.on('connect')
+def handle_connect():
+    print("Client connected")
+    socketio.start_background_task(send_real_time_data)
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print("Client disconnected")
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    app.run(debug=True, host='0.0.0.0')
