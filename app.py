@@ -30,7 +30,7 @@ def publish_data(prediction_result):
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.username_pw_set(os.getenv('MQTT_USERNAME'), os.getenv('MQTT_PASSWORD'))
     client.connect(host=os.getenv('MQTT_HOST'), port=1883, keepalive=60)
-    client.publish('iot/prediction', json.dumps({'prediction': prediction_result}))
+    client.publish('iot/prediction', json.dumps({'prediction': bool(prediction_result)}))
 
 
 class PredictSchema(Schema):
