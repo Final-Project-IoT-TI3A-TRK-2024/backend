@@ -8,6 +8,7 @@ from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 from flask_cors import CORS
 from marshmallow import Schema, fields, ValidationError
+import paho.mqtt.client as mqtt
 
 from utils import load_model
 
@@ -23,6 +24,13 @@ try:
     collection = db['sensor']
 except Exception as e:
     exit(f"Error: {str(e)}")
+
+
+def publish_data(prediction_result):
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.username_pw_set(os.getenv('MQTT_USERNAME'), os.getenv('MQTT_PASSWORD'))
+    client.connect(host=os.getenv('MQTT_HOST'), port=1883, keepalive=60)
+    client.publish('iot/prediction', json.dumps({'prediction': prediction_result}))
 
 
 class PredictSchema(Schema):
@@ -43,6 +51,8 @@ def predict():
 
     loaded_model = load_model("Decision Tree")
     prediction = loaded_model.predict([[data['crop_type'], data['soil_moisture'], data['temperature'], data['humidity']]])[0]
+    publish_data(prediction)
+
     return jsonify({
         'prediction': bool(prediction)
     }), 200

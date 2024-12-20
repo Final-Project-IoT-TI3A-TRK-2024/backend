@@ -6,3 +6,4 @@ pymongo
 flask-cors
 flask-socketio
 scikit-learn
+paho-mqtt~=2.1.0
